@@ -27,9 +27,9 @@
 
 # app/routers/payments.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, conint, validator
-from typing import List, Literal
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from typing import List
 from postgrest import APIError
 from app.core.db import supabase
 from app.core.auth import verify_jwt_token
@@ -42,25 +42,20 @@ class Payment(BaseModel):
         pattern=r'^\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}$',
         description="DATERANGE in format YYYY-MM-DD - YYYY-MM-DD"
     )
-    realid: str = Field(..., min_length=1)
-    Amount: conint(gt=0)
-    tag: Literal['<STAB','STAB','<MAD','MAD','<TAD','TAD']  # enforce valid tags
-
-    @validator('date')
-    def validate_range(cls, v):
-        start, end = [d.strip() for d in v.split('-')]
-        if start >= end:
-            raise ValueError("date range start must be before end")
-        return v
+    realid: str
+    Amount: int
+    Payment_Tag: str = Field(..., alias="Payment Tag")
 
 class PaymentsRequest(BaseModel):
-    payments: List[Payment] = Field(..., min_items=1)
+    payments: List[Payment]
 
 @router.post("", summary="Receive and insert payments")
 def create_payments(body: PaymentsRequest, token=Depends(verify_jwt_token)):
+    # Use by_alias to send "Payment Tag" key
     records = [p.dict(by_alias=True) for p in body.payments]
     try:
-        resp = supabase.from_("payments").insert(records).execute()
+        resp = supabase.from_("Payments").insert(records).execute()
     except APIError as e:
         raise HTTPException(status_code=500, detail=e.message)
     return {"success": True, "inserted": len(resp.data)}
+
