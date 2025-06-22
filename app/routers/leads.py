@@ -32,7 +32,7 @@
 
 # app/routers/leads.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel, Field, EmailStr, conint, validator
 from typing import List, Optional, Literal
 from postgrest import APIError
@@ -49,9 +49,9 @@ class Lead(BaseModel):
     )
     realid: str = Field(..., min_length=1)
     name:   str = Field(..., min_length=1)
-    phone_1: conint(ge=1000000000, le=9999999999)
-    phone_2: Optional[conint(ge=1000000000, le=9999999999)] = None
-    email: Optional[EmailStr] = None                  # <--- EmailStr enforces valid email
+    phone_1: conint(ge=1_000_000_000, le=9_999_999_999)
+    phone_2: Optional[conint(ge=1_000_000_000, le=9_999_999_999)] = None
+    email: Optional[EmailStr] = None
     gender: Literal['male', 'female']
     preferred_language: Literal['en','hi','mr','te','ta','kn','gu','bn']
     home_state: str
@@ -81,11 +81,34 @@ class LeadsRequest(BaseModel):
     leads: List[Lead] = Field(..., min_items=1)
 
 @router.post("", summary="Receive and insert leads")
-def create_leads(body: LeadsRequest, token=Depends(verify_jwt_token)):
-    records = [lead.dict() for lead in body.leads]
+def create_leads(
+    body: LeadsRequest = Body(...),
+    token=Depends(verify_jwt_token)
+):
+    # 1) Empty-array check
+    if not body.leads:
+        raise HTTPException(status_code=400, detail="Request body cannot be empty")
+
+    # 2) Duplicate realid pre-check
+    realids = [l.realid for l in body.leads]
+    existing = supabase \
+        .from_("leads") \
+        .select("realid") \
+        .in_("realid", realids) \
+        .execute() \
+        .data
+    if existing:
+        conflicts = [r["realid"] for r in existing]
+        raise HTTPException(
+            status_code=409,
+            detail=f"Duplicate realid(s): {conflicts}"
+        )
+
+    # 3) Bulk insert
+    records = [l.dict() for l in body.leads]
     try:
         resp = supabase.from_("leads").insert(records).execute()
     except APIError as e:
-        # Database-level error
         raise HTTPException(status_code=500, detail=e.message)
+
     return {"success": True, "inserted": len(resp.data)}
