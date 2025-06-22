@@ -173,9 +173,28 @@
 
 
 
-# app/main.py
+# # app/main.py(main)
+
+# from fastapi import FastAPI
+# from app.routers import leads, payments
+
+# app = FastAPI(
+#     title="FASTAPI–Supabase Integration",
+#     version="1.0.0",
+#     description="Secure endpoints for Leads and Payments"
+# )
+
+# app.include_router(leads.router)
+# app.include_router(payments.router)
+
+# @app.get("/health", summary="Health check")
+# def health_check():
+#     return {"status": "healthy"}
+
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from app.routers import leads, payments
 
 app = FastAPI(
@@ -184,10 +203,23 @@ app = FastAPI(
     description="Secure endpoints for Leads and Payments"
 )
 
+# Global handler for invalid JSON / validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    # Build a simple list of {loc, msg} dicts
+    errors = [
+        {"loc": e["loc"], "msg": e["msg"]}
+        for e in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=400,
+        content={"error": "Invalid request", "details": errors}
+    )
+
 app.include_router(leads.router)
 app.include_router(payments.router)
 
-@app.get("/health", summary="Health check")
+@app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
