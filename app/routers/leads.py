@@ -32,14 +32,18 @@
 
 # app/routers/leads.py
 
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, EmailStr, conint, validator
 from typing import List, Optional, Literal
 from postgrest import APIError
+
 from app.core.db import supabase
 from app.core.auth import verify_jwt_token
+from ._schemas import ErrorResponse
 
 router = APIRouter(prefix="/api/v1/leads", tags=["leads"])
+
 
 class Lead(BaseModel):
     date: str = Field(
@@ -48,7 +52,7 @@ class Lead(BaseModel):
         description="DATERANGE in format YYYY-MM-DD - YYYY-MM-DD"
     )
     realid: str = Field(..., min_length=1)
-    name:   str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
     phone_1: conint(ge=1_000_000_000, le=9_999_999_999)
     phone_2: Optional[conint(ge=1_000_000_000, le=9_999_999_999)] = None
     email: Optional[EmailStr] = None
@@ -77,19 +81,71 @@ class Lead(BaseModel):
             raise ValueError('due_date must be after bill_date')
         return v
 
+
 class LeadsRequest(BaseModel):
     leads: List[Lead] = Field(..., min_items=1)
 
-@router.post("", summary="Receive and insert leads")
+
+@router.post(
+    "",
+    summary="Receive and insert leads",
+    response_model=dict,
+    responses={
+        200: {"description": "Leads processed successfully"},
+        400: {
+            "model": ErrorResponse,
+            "description": "Validation error or bad request",
+            "content": {
+                "application/json": {
+                    "example": {"error": "realid is required"}
+                }
+            },
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Invalid or expired token",
+            "content": {
+                "application/json": {
+                    "example": {"error": "Invalid or expired token"}
+                }
+            },
+        },
+        403: {
+            "model": ErrorResponse,
+            "description": "Authentication required",
+            "content": {
+                "application/json": {
+                    "example": {"error": "Authentication required"}
+                }
+            },
+        },
+        409: {
+            "model": ErrorResponse,
+            "description": "Conflict — duplicate realid",
+            "content": {
+                "application/json": {
+                    "example": {"error": "Duplicate realid(s): ['OC123']"}
+                }
+            },
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {"error": "Internal server error"}
+                }
+            },
+        },
+    },
+)
 def create_leads(
     body: LeadsRequest = Body(...),
     token=Depends(verify_jwt_token)
 ):
-    # 1) Empty-array check
     if not body.leads:
         raise HTTPException(status_code=400, detail="Request body cannot be empty")
 
-    # 2) Duplicate realid pre-check
     realids = [l.realid for l in body.leads]
     existing = supabase \
         .from_("leads") \
@@ -99,16 +155,12 @@ def create_leads(
         .data
     if existing:
         conflicts = [r["realid"] for r in existing]
-        raise HTTPException(
-            status_code=409,
-            detail=f"Duplicate realid(s): {conflicts}"
-        )
+        raise HTTPException(status_code=409, detail=f"Duplicate realid(s): {conflicts}")
 
-    # 3) Bulk insert
     records = [l.dict() for l in body.leads]
     try:
         resp = supabase.from_("leads").insert(records).execute()
     except APIError as e:
-        raise HTTPException(status_code=500, detail=e.message)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     return {"success": True, "inserted": len(resp.data)}
