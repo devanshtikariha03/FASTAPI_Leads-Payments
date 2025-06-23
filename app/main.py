@@ -198,9 +198,9 @@ from fastapi.responses import JSONResponse
 from app.routers import leads, payments
 
 app = FastAPI(
-    title="FASTAPI–Supabase Integration",
+    title="PredixionAI-Onecard",
     version="1.0.0",
-    description="Secure endpoints for Leads and Payments"
+    description="Secure endpoints for Integrating Predixion AI Platform with OneCard Platform"
 )
 
 # Global handler for invalid JSON / validation errors
